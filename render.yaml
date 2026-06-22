@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: whatsapp-bot
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn bot:app
+    envVars:
+      - key: WHATSAPP_TOKEN
+        sync: false
+      - key: WHATSAPP_PHONE_ID
+        sync: false
+      - key: VERIFY_TOKEN
+        value: my_verify_token_123
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: ADMIN_NUMBERS
+        sync: false
