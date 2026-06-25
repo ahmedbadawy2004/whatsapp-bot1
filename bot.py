@@ -2,13 +2,12 @@ import os
 import json
 import gspread
 from google.oauth2.service_account import Credentials
-import google.generativeai as genai
+from google import genai
 from flask import Flask, request, jsonify
 import requests
 
 app = Flask(__name__)
 
-# ==================== إعدادات ====================
 SHEET_ID = "1xsNhw8tS0_EbOHJtIHn-3evNAjiqIuxo"
 
 WHATSAPP_TOKEN = os.environ.get("WHATSAPP_TOKEN", "")
@@ -17,27 +16,24 @@ VERIFY_TOKEN = os.environ.get("VERIFY_TOKEN", "my_verify_token_123")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 ADMIN_NUMBERS = os.environ.get("ADMIN_NUMBERS", "").split(",")
 
-# ==================== قراءة الشيت ====================
 def get_prices_from_sheet():
     try:
         creds_json = os.environ.get("GOOGLE_CREDENTIALS", "")
         if not creds_json:
             print("❌ GOOGLE_CREDENTIALS مش موجود")
             return {}
-        
         creds_dict = json.loads(creds_json)
+        creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
         scopes = ['https://www.googleapis.com/auth/spreadsheets.readonly']
         creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
         gc = gspread.authorize(creds)
         sh = gc.open_by_key(SHEET_ID)
-        
         prices_data = {}
         for worksheet in sh.worksheets():
             if worksheet.title == "إعدادات البوت":
                 continue
             data = worksheet.get_all_records()
             prices_data[worksheet.title] = data
-        
         return prices_data
     except Exception as e:
         print(f"خطأ في قراءة الشيت: {e}")
@@ -54,11 +50,8 @@ def format_prices_for_ai(prices_data):
         text += "\n"
     return text
 
-# ==================== AI ====================
 def get_ai_response(user_message, prices_text):
-    genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel("gemini-1.5-flash")
-    
+    client = genai.Client(api_key=GEMINI_API_KEY)
     prompt = f"""أنت موظف خدمة عملاء في مركز صيانة موبايلات في مصر.
 بتردد على أسئلة محلات الموبايلات اللي بتسأل عن أسعار قطع الغيار والإصلاح.
 
@@ -77,23 +70,13 @@ def get_ai_response(user_message, prices_text):
 {prices_text}
 
 سؤال العميل: {user_message}"""
-
-    response = model.generate_content(prompt)
+    response = client.models.generate_content(model="gemini-2.0-flash", contents=prompt)
     return response.text
 
-# ==================== WhatsApp ====================
 def send_whatsapp_message(to, message):
     url = f"https://graph.facebook.com/v18.0/{WHATSAPP_PHONE_ID}/messages"
-    headers = {
-        "Authorization": f"Bearer {WHATSAPP_TOKEN}",
-        "Content-Type": "application/json"
-    }
-    data = {
-        "messaging_product": "whatsapp",
-        "to": to,
-        "type": "text",
-        "text": {"body": message}
-    }
+    headers = {"Authorization": f"Bearer {WHATSAPP_TOKEN}", "Content-Type": "application/json"}
+    data = {"messaging_product": "whatsapp", "to": to, "type": "text", "text": {"body": message}}
     response = requests.post(url, headers=headers, json=data)
     print(f"WhatsApp response: {response.json()}")
     return response.json()
@@ -105,13 +88,11 @@ def mention_admins(sender, original_question, sender_name):
             mention_text += f"@{admin} "
     send_whatsapp_message(sender, mention_text)
 
-# ==================== Webhook ====================
 @app.route("/webhook", methods=["GET"])
 def verify_webhook():
     mode = request.args.get("hub.mode")
     token = request.args.get("hub.verify_token")
     challenge = request.args.get("hub.challenge")
-    
     if mode == "subscribe" and token == VERIFY_TOKEN:
         print("✅ Webhook verified!")
         return challenge, 200
@@ -120,39 +101,29 @@ def verify_webhook():
 @app.route("/webhook", methods=["POST"])
 def handle_webhook():
     data = request.json
-    
     try:
         entry = data["entry"][0]
         changes = entry["changes"][0]
         value = changes["value"]
-        
         if "messages" not in value:
             return jsonify({"status": "ok"})
-        
         message = value["messages"][0]
         sender = message["from"]
-        
         if message["type"] != "text":
             return jsonify({"status": "ok"})
-        
         user_text = message["text"]["body"]
         contacts = value.get("contacts", [{}])
         sender_name = contacts[0].get("profile", {}).get("name", sender) if contacts else sender
-        
         print(f"📨 رسالة من {sender_name}: {user_text}")
-        
         prices_data = get_prices_from_sheet()
         prices_text = format_prices_for_ai(prices_data)
         ai_response = get_ai_response(user_text, prices_text)
-        
         if "NEED_HUMAN" in ai_response:
             send_whatsapp_message(sender, "⏳ سؤالك محتاج متخصص — بنعمل منشن للمسؤولين دلوقتي!")
             mention_admins(sender, user_text, sender_name)
         else:
             send_whatsapp_message(sender, ai_response)
-        
         return jsonify({"status": "ok"})
-    
     except Exception as e:
         print(f"❌ خطأ: {e}")
         return jsonify({"status": "error", "message": str(e)})
