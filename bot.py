@@ -9,7 +9,6 @@ import requests
 app = Flask(__name__)
 
 SHEET_ID = "1xsNhw8tS0_EbOHJtIHn-3evNAjiqIuxo"
-
 WHATSAPP_TOKEN = os.environ.get("WHATSAPP_TOKEN", "")
 WHATSAPP_PHONE_ID = os.environ.get("WHATSAPP_PHONE_ID", "")
 VERIFY_TOKEN = os.environ.get("VERIFY_TOKEN", "my_verify_token_123")
@@ -18,16 +17,29 @@ ADMIN_NUMBERS = os.environ.get("ADMIN_NUMBERS", "").split(",")
 
 def get_prices_from_sheet():
     try:
-        creds_json = os.environ.get("GOOGLE_CREDENTIALS", "")
-        if not creds_json:
-            print("❌ GOOGLE_CREDENTIALS مش موجود")
-            return {}
-        creds_dict = json.loads(creds_json)
-        creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
+        private_key = os.environ.get("GS_PRIVATE_KEY", "")
+        if "\\n" in private_key:
+            private_key = private_key.replace("\\n", "\n")
+
+        creds_dict = {
+            "type": "service_account",
+            "project_id": os.environ.get("GS_PROJECT_ID"),
+            "private_key_id": os.environ.get("GS_PRIVATE_KEY_ID"),
+            "private_key": private_key,
+            "client_email": os.environ.get("GS_CLIENT_EMAIL"),
+            "client_id": "103856623987810429564",
+            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+            "token_uri": "https://oauth2.googleapis.com/token",
+            "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+            "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/sheets-bot%40whatsapp-bot-500223.iam.gserviceaccount.com",
+            "universe_domain": "googleapis.com"
+        }
+
         scopes = ['https://www.googleapis.com/auth/spreadsheets.readonly']
         creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
         gc = gspread.authorize(creds)
         sh = gc.open_by_key(SHEET_ID)
+
         prices_data = {}
         for worksheet in sh.worksheets():
             if worksheet.title == "إعدادات البوت":
