@@ -2,7 +2,7 @@ import os
 import json
 import gspread
 from google.oauth2.service_account import Credentials
-import anthropic
+import google.generativeai as genai
 from flask import Flask, request, jsonify
 import requests
 
@@ -14,7 +14,7 @@ SHEET_ID = "1xsNhw8tS0_EbOHJtIHn-3evNAjiqIuxo"
 WHATSAPP_TOKEN = os.environ.get("WHATSAPP_TOKEN", "")
 WHATSAPP_PHONE_ID = os.environ.get("WHATSAPP_PHONE_ID", "")
 VERIFY_TOKEN = os.environ.get("VERIFY_TOKEN", "my_verify_token_123")
-ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 ADMIN_NUMBERS = os.environ.get("ADMIN_NUMBERS", "").split(",")
 
 # ==================== قراءة الشيت ====================
@@ -56,9 +56,10 @@ def format_prices_for_ai(prices_data):
 
 # ==================== AI ====================
 def get_ai_response(user_message, prices_text):
-    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+    genai.configure(api_key=GEMINI_API_KEY)
+    model = genai.GenerativeModel("gemini-1.5-flash")
     
-    system_prompt = f"""أنت موظف خدمة عملاء في مركز صيانة موبايلات في مصر.
+    prompt = f"""أنت موظف خدمة عملاء في مركز صيانة موبايلات في مصر.
 بتردد على أسئلة محلات الموبايلات اللي بتسأل عن أسعار قطع الغيار والإصلاح.
 
 قواعد مهمة جداً:
@@ -73,16 +74,12 @@ def get_ai_response(user_message, prices_text):
 9. لو مش لاقي إجابة للسؤال، رد بالكلمة بالظبط: NEED_HUMAN
 
 قائمة الأسعار عندك:
-{prices_text}"""
+{prices_text}
 
-    message = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=500,
-        system=system_prompt,
-        messages=[{"role": "user", "content": user_message}]
-    )
-    
-    return message.content[0].text
+سؤال العميل: {user_message}"""
+
+    response = model.generate_content(prompt)
+    return response.text
 
 # ==================== WhatsApp ====================
 def send_whatsapp_message(to, message):
